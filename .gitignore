@@ -1,3 +1,11 @@
 __pycache__/
+*.pyc
+
+venv/
+.env
+
+healthcare.db
+
 .ipynb_checkpoints/
-prediction_history.csv
+
+.DS_Store

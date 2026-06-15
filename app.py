@@ -1,10 +1,15 @@
 import streamlit as st
 import pickle
 import pandas as pd
-import os
+import requests
+from report_generator import *
+import plotly.express as px
+from auth import register_user, login_user
 
 from datetime import datetime
+
 from helper import *
+from database import *
 
 # ---------- LOAD MODEL ----------
 
@@ -32,13 +37,211 @@ st.set_page_config(
 
 )
 
-st.title(
-"🏥 Personalized Healthcare & Medicine Recommendation System"
+# ---------- CUSTOM CSS ----------
+
+st.markdown("""
+
+<style>
+
+.main {
+    padding-top: 1rem;
+}
+
+.stButton button {
+    width: 100%;
+    border-radius: 10px;
+    height: 45px;
+}
+
+.stTextInput input {
+    border-radius: 10px;
+}
+
+.login-box {
+    padding: 20px;
+    border-radius: 15px;
+    background-color: #f8f9fa;
+}
+
+</style>
+
+""", unsafe_allow_html=True)
+
+# ---------- APP HEADER ----------
+
+st.markdown(
+
+    """
+    <h1 style='text-align:center;color:#0E76A8'>
+    🏥 Personalized Healthcare & Medicine Recommendation System
+    </h1>
+    """,
+
+    unsafe_allow_html=True
+
 )
 
-st.sidebar.header(
-"Select Symptoms"
+# ---------- LOGIN SYSTEM ----------
+
+menu = [
+
+    "🔐 Login",
+
+    "📝 Register"
+
+]
+
+choice = st.sidebar.selectbox(
+
+    "Account",
+
+    menu
+
 )
+
+# ---------- REGISTER ----------
+
+if choice == "📝 Register":
+
+    st.markdown("## 📝 Create New Account")
+
+    new_user = st.text_input(
+
+        "👤 Username"
+
+    )
+
+    new_password = st.text_input(
+
+        "🔒 Password",
+
+        type="password"
+
+    )
+
+    if st.button(
+
+        "🚀 Register"
+
+    ):
+
+        success = register_user(
+
+            new_user,
+
+            new_password
+
+        )
+
+        if success:
+
+            st.success(
+
+                "✅ Account Created Successfully"
+
+            )
+
+        else:
+
+            st.error(
+
+                "❌ Username Already Exists"
+
+            )
+
+    st.stop()
+
+# ---------- LOGIN ----------
+
+if choice == "🔐 Login":
+
+    st.markdown("## 🔐 Login")
+
+    username = st.text_input(
+
+        "👤 Username"
+
+    )
+
+    password = st.text_input(
+
+        "🔒 Password",
+
+        type="password"
+
+    )
+
+    if st.button(
+
+        "🚀 Login"
+
+    ):
+
+        user = login_user(
+
+            username,
+
+            password
+
+        )
+
+        if user:
+
+            st.session_state[
+                "logged_in"
+            ] = True
+
+            st.session_state[
+                "username"
+            ] = username
+
+            st.rerun()
+
+        else:
+
+            st.error(
+
+                "❌ Invalid Username or Password"
+
+            )
+
+    if not st.session_state.get(
+
+        "logged_in",
+
+        False
+
+    ):
+
+        st.stop()
+
+# ---------- MAIN APP ----------
+
+st.sidebar.success(
+
+    f"👋 Welcome {st.session_state['username']}"
+
+)
+
+# ---------- LOGOUT ----------
+
+if st.sidebar.button(
+
+    "🚪 Logout"
+
+):
+
+    st.session_state.clear()
+
+    st.rerun()
+
+st.sidebar.header(
+
+    "Select Symptoms"
+
+)
+
+
 
 # ---------- NLP TEXT INPUT ----------
 
@@ -103,31 +306,63 @@ if text_input:
 
 # ---------- PREDICT ----------
 
-if st.sidebar.button(
-    "Predict Disease"
-):
+if st.sidebar.button("Predict Disease"):
 
-    input_data = [0]*132
+    input_data = [0] * len(all_symptoms)
 
     for symptom in selected_symptoms:
 
-        index = all_symptoms.index(
-            symptom
-        )
+        index = all_symptoms.index(symptom)
 
         input_data[index] = 1
 
-    prediction = model.predict(
+    # ---------- FASTAPI PREDICTION ----------
+
+    response = requests.post(
+
+        "http://127.0.0.1:8000/predict",
+
+        json={
+
+            "symptoms": selected_symptoms
+
+        }
+
+    )
+
+    result = response.json()
+
+    prediction = result[
+        "predicted_disease"
+    ]
+
+    confidence = result[
+        "confidence"
+    ]
+
+    # ---------- TOP 3 PREDICTIONS ----------
+
+    probabilities = model.predict_proba(
         [input_data]
     )[0]
 
-    confidence = max(
+    top_indices = probabilities.argsort()[-3:][::-1]
 
-        model.predict_proba(
-            [input_data]
-        )[0]
+    top_predictions = []
 
-    )*100
+    for idx in top_indices:
+
+        disease = model.classes_[idx]
+
+        prob = probabilities[idx] * 100
+
+        top_predictions.append(
+
+            (disease, prob)
+
+        )
+
+    # ---------- RISK ANALYSIS ----------
 
     severity_score = get_severity_score(
         selected_symptoms
@@ -139,64 +374,21 @@ if st.sidebar.button(
 
     # ---------- SAVE HISTORY ----------
 
-    history_data = {
+    insert_prediction(
 
-        "Date":[
-            datetime.now()
-        ],
+    st.session_state["username"],
 
-        "Symptoms":[
-            ", ".join(
-                selected_symptoms
-            )
-        ],
+    str(datetime.now()),
 
-        "Disease":[
-            prediction
-        ],
+    ", ".join(selected_symptoms),
 
-        "Confidence":[
-            round(
-                confidence,
-                2
-            )
-        ],
+    prediction,
 
-        "Risk Level":[
-            risk_level
-        ]
+    round(confidence, 2),
 
-    }
+    risk_level
 
-    history_df = pd.DataFrame(
-        history_data
-    )
-
-    if os.path.exists(
-        "prediction_history.csv"
-    ):
-
-        history_df.to_csv(
-
-            "prediction_history.csv",
-
-            mode="a",
-
-            header=False,
-
-            index=False
-
-        )
-
-    else:
-
-        history_df.to_csv(
-
-            "prediction_history.csv",
-
-            index=False
-
-        )
+)
 
     # ---------- RESULTS ----------
 
@@ -208,19 +400,30 @@ if st.sidebar.button(
         f"Confidence Score : {confidence:.2f}%"
     )
 
+    st.subheader(
+        "📊 Top Disease Predictions"
+    )
+
+    for i, (disease, prob) in enumerate(
+        top_predictions,
+        start=1
+    ):
+
+        st.write(
+            f"{i}. {disease} - {prob:.2f}%"
+        )
+
     st.warning(
         f"Risk Level : {risk_level}"
     )
 
-    col1,col2 = st.columns(2)
+    col1, col2 = st.columns(2)
 
     # ---------- COLUMN 1 ----------
 
     with col1:
 
-        st.subheader(
-            "📖 Description"
-        )
+        st.subheader("📖 Description")
 
         st.write(
             get_description(
@@ -228,9 +431,7 @@ if st.sidebar.button(
             )
         )
 
-        st.subheader(
-            "💊 Medication"
-        )
+        st.subheader("💊 Medication")
 
         st.write(
             get_medication(
@@ -238,9 +439,7 @@ if st.sidebar.button(
             )
         )
 
-        st.subheader(
-            "🥗 Diet Recommendation"
-        )
+        st.subheader("🥗 Diet Recommendation")
 
         st.write(
             get_diet(
@@ -248,7 +447,7 @@ if st.sidebar.button(
             )
         )
 
-    # ---------- COLUMN 2 ----------
+        # ---------- COLUMN 2 ----------
 
     with col2:
 
@@ -263,7 +462,8 @@ if st.sidebar.button(
         for p in precautions_list:
 
             st.write(
-                "✔",p
+                "✔",
+                p
             )
 
         st.subheader(
@@ -286,20 +486,272 @@ if st.sidebar.button(
             )
         )
 
+        # ---------- PDF REPORT ----------
+
+        pdf_file = generate_report(
+
+            prediction,
+
+            confidence,
+
+            risk_level,
+
+            get_description(
+                prediction
+            ),
+
+            get_medication(
+                prediction
+            ),
+
+            get_diet(
+                prediction
+            ),
+
+            get_workout(
+                prediction
+            ),
+
+            get_doctor(
+                prediction
+            ),
+
+            precautions_list
+
+        )
+
+        with open(
+            pdf_file,
+            "rb"
+        ) as file:
+
+            st.download_button(
+
+                label="📄 Download Health Report",
+
+                data=file,
+
+                file_name="Health_Report.pdf",
+
+                mime="application/pdf"
+
+            )
 # ---------- HISTORY ----------
 
 st.subheader(
     "📜 Prediction History"
 )
 
-if os.path.exists(
-    "prediction_history.csv"
-):
+history = get_history(
+    st.session_state["username"]
+)
 
-    history = pd.read_csv(
-        "prediction_history.csv"
+if history:
+
+    history_df = pd.DataFrame(
+
+        history,
+
+        columns=[
+
+            "ID",
+            "Username",
+            "Date",
+            "Symptoms",
+            "Disease",
+            "Confidence",
+            "Risk Level"
+
+        ]
+
     )
 
     st.dataframe(
-        history.tail(10)
+        history_df.tail(10)
     )
+
+else:
+
+    st.info(
+        "No prediction history found."
+    )
+    
+    # ---------- ANALYTICS DASHBOARD ----------
+
+st.subheader(
+    "📊 Health Analytics Dashboard"
+)
+
+if history:
+
+    # Total Predictions
+
+    total_predictions = len(
+        history_df
+    )
+
+    # Average Confidence
+
+    avg_confidence = round(
+
+        history_df[
+            "Confidence"
+        ].mean(),
+
+        2
+
+    )
+
+    # Most Predicted Disease
+
+    most_common_disease = history_df[
+        "Disease"
+    ].mode()[0]
+
+    # Metrics
+
+    col1, col2, col3 = st.columns(3)
+
+    with col1:
+
+        st.metric(
+
+            "Total Predictions",
+
+            total_predictions
+
+        )
+
+    with col2:
+
+        st.metric(
+
+            "Average Confidence",
+
+            f"{avg_confidence}%"
+
+        )
+
+    with col3:
+
+        st.metric(
+
+            "Most Common Disease",
+
+            most_common_disease
+
+        )
+    
+    # ---------- FEATURE IMPORTANCE ----------
+
+st.subheader(
+    "⭐ Feature Importance Dashboard"
+)
+
+try:
+
+    importance = model.feature_importances_
+
+    importance_df = pd.DataFrame({
+
+        "Symptom": all_symptoms,
+
+        "Importance": importance
+
+    })
+
+    importance_df = importance_df.sort_values(
+
+        by="Importance",
+
+        ascending=False
+
+    ).head(10)
+
+    fig = px.bar(
+
+        importance_df,
+
+        x="Importance",
+
+        y="Symptom",
+
+        orientation="h",
+
+        title="Top 10 Important Symptoms"
+
+    )
+
+    st.plotly_chart(
+
+        fig,
+
+        use_container_width=True
+
+    )
+
+except Exception as e:
+
+    st.error(
+
+        f"Feature Importance Error: {e}"
+
+    )
+
+# ---------- DISEASE DISTRIBUTION ----------
+
+st.subheader(
+    "📈 Disease Distribution"
+)
+
+disease_counts = history_df[
+    "Disease"
+].value_counts()
+
+fig1 = px.bar(
+
+    x=disease_counts.index,
+
+    y=disease_counts.values,
+
+    labels={
+
+        "x":"Disease",
+
+        "y":"Count"
+
+    },
+
+    title="Disease Frequency"
+
+)
+
+st.plotly_chart(
+    fig1,
+    use_container_width=True
+)
+
+# ---------- RISK LEVEL DISTRIBUTION ----------
+
+st.subheader(
+    "⚠ Risk Level Distribution"
+)
+
+risk_counts = history_df[
+    "Risk Level"
+].value_counts()
+
+fig2 = px.pie(
+
+    names=risk_counts.index,
+
+    values=risk_counts.values,
+
+    title="Risk Level Analysis"
+
+)
+
+st.plotly_chart(
+    fig2,
+    use_container_width=True
+)
