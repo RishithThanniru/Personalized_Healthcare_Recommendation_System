@@ -1,7 +1,6 @@
 import streamlit as st
 import pickle
 import pandas as pd
-import requests
 from report_generator import *
 import plotly.express as px
 from auth import register_user, login_user
@@ -308,6 +307,8 @@ if text_input:
 
 if st.sidebar.button("Predict Disease"):
 
+    # Create Input Vector
+
     input_data = [0] * len(all_symptoms)
 
     for symptom in selected_symptoms:
@@ -316,35 +317,21 @@ if st.sidebar.button("Predict Disease"):
 
         input_data[index] = 1
 
-    # ---------- FASTAPI PREDICTION ----------
+    # ---------- PREDICTION ----------
 
-    response = requests.post(
-
-        "http://127.0.0.1:8000/predict",
-
-        json={
-
-            "symptoms": selected_symptoms
-
-        }
-
-    )
-
-    result = response.json()
-
-    prediction = result[
-        "predicted_disease"
-    ]
-
-    confidence = result[
-        "confidence"
-    ]
-
-    # ---------- TOP 3 PREDICTIONS ----------
+    prediction = model.predict(
+        [input_data]
+    )[0]
 
     probabilities = model.predict_proba(
         [input_data]
     )[0]
+
+    confidence = max(
+        probabilities
+    ) * 100
+
+    # ---------- TOP 3 PREDICTIONS ----------
 
     top_indices = probabilities.argsort()[-3:][::-1]
 
@@ -570,19 +557,11 @@ if history:
         history_df.tail(10)
     )
 
-else:
-
-    st.info(
-        "No prediction history found."
-    )
-    
     # ---------- ANALYTICS DASHBOARD ----------
 
-st.subheader(
-    "📊 Health Analytics Dashboard"
-)
-
-if history:
+    st.subheader(
+        "📊 Health Analytics Dashboard"
+    )
 
     # Total Predictions
 
@@ -641,6 +620,12 @@ if history:
             most_common_disease
 
         )
+
+else:
+
+    st.info(
+        "No prediction history found."
+    )
     
     # ---------- FEATURE IMPORTANCE ----------
 
@@ -650,45 +635,47 @@ st.subheader(
 
 try:
 
-    importance = model.feature_importances_
+    if hasattr(model, "feature_importances_"):
 
-    importance_df = pd.DataFrame({
+        importance = model.feature_importances_
 
-        "Symptom": all_symptoms,
+        importance_df = pd.DataFrame({
 
-        "Importance": importance
+            "Symptom": all_symptoms,
 
-    })
+            "Importance": importance
 
-    importance_df = importance_df.sort_values(
+        })
 
-        by="Importance",
+        importance_df = importance_df.sort_values(
 
-        ascending=False
+            by="Importance",
 
-    ).head(10)
+            ascending=False
 
-    fig = px.bar(
+        ).head(10)
 
-        importance_df,
+        fig = px.bar(
 
-        x="Importance",
+            importance_df,
 
-        y="Symptom",
+            x="Importance",
 
-        orientation="h",
+            y="Symptom",
 
-        title="Top 10 Important Symptoms"
+            orientation="h",
 
-    )
+            title="Top 10 Important Symptoms"
 
-    st.plotly_chart(
+        )
 
-        fig,
+        st.plotly_chart(
 
-        use_container_width=True
+            fig,
 
-    )
+            use_container_width=True
+
+        )
 
 except Exception as e:
 
@@ -716,9 +703,9 @@ fig1 = px.bar(
 
     labels={
 
-        "x":"Disease",
+        "x": "Disease",
 
-        "y":"Count"
+        "y": "Count"
 
     },
 
