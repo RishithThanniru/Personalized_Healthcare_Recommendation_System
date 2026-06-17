@@ -1,5 +1,10 @@
 # 🏥 Personalized Healthcare & Medicine Recommendation System
 
+🌐 Live Demo
+
+🔗 Application Link:
+https://personalizedhealthcarerecommendationsystem-fkxo2z7xuv8anayuh62.streamlit.app/
+
 ## 📌 Overview
 
 The Personalized Healthcare & Medicine Recommendation System is an AI-powered healthcare application that predicts diseases based on user symptoms and provides personalized healthcare recommendations.
